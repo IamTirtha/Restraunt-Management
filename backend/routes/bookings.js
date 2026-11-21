@@ -1,7 +1,10 @@
 const express = require("express");
 const { Booking, Alteration } = require("../models/Booking");
+const { protect } = require("../middleware/auth");
 
 const router = express.Router();
+
+router.use(protect); // every route below needs a logged-in user
 
 // Same constraints as the frontend, checked again on the server
 function validateBooking(b) {
@@ -20,76 +23,94 @@ function validateBooking(b) {
   return errors;
 }
 
-// GET all bookings
+// Owner or admin only
+const canAccess = (booking, user) =>
+  user.role === "admin" || String(booking.user) === String(user._id);
+
+// GET bookings: admin sees all, customer sees own
 router.get("/bookings", async (req, res) => {
   try {
-    const bookings = await Booking.find();
-    res.json(bookings);
+    const filter = req.user.role === "admin" ? {} : { user: req.user._id };
+    res.json(await Booking.find(filter));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST add a new booking (Exp 2)
+// POST add booking
 router.post("/bookings", async (req, res) => {
   const errors = validateBooking(req.body);
   if (errors.length > 0) return res.status(400).json({ errors });
   try {
-    const booking = await Booking.create(req.body);
+    const { updateCount, _id, user, ...data } = req.body;
+    const booking = await Booking.create({ ...data, user: req.user._id });
     res.status(201).json(booking);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// PUT update a booking (Exp 3 + Exp 4: increases updateCount by 1)
+// PUT update booking (increases updateCount by 1)
 router.put("/bookings/:id", async (req, res) => {
   const errors = validateBooking(req.body);
   if (errors.length > 0) return res.status(400).json({ errors });
   try {
-    const { updateCount, _id, ...data } = req.body; // ignore these if sent
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { $set: data, $inc: { updateCount: 1 } },
-      { new: true }
-    );
+    const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (!canAccess(booking, req.user))
+      return res.status(403).json({ message: "Not your booking" });
+
+    const { updateCount, _id, user, ...data } = req.body;
+    Object.assign(booking, data);
+    booking.updateCount += 1;
+    await booking.save();
     res.json(booking);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST alter: save a modified copy in the alterations collection (Exp 3)
+// POST alter: save a modified copy in the alterations collection
 router.post("/bookings/:id/alter", async (req, res) => {
   const errors = validateBooking(req.body);
   if (errors.length > 0) return res.status(400).json({ errors });
   try {
     const original = await Booking.findById(req.params.id);
     if (!original) return res.status(404).json({ message: "Booking not found" });
-    const { updateCount, _id, ...data } = req.body;
-    const altered = await Alteration.create({ ...data, originalId: original._id });
+    if (!canAccess(original, req.user))
+      return res.status(403).json({ message: "Not your booking" });
+
+    const { updateCount, _id, user, ...data } = req.body;
+    const altered = await Alteration.create({
+      ...data,
+      originalId: original._id,
+      user: original.user,
+    });
     res.status(201).json(altered);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET all altered bookings
+// GET altered bookings: admin sees all, customer sees own
 router.get("/alterations", async (req, res) => {
   try {
-    const alterations = await Alteration.find();
-    res.json(alterations);
+    const filter = req.user.role === "admin" ? {} : { user: req.user._id };
+    res.json(await Alteration.find(filter));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// DELETE a booking and its altered copies (Exp 3)
+// DELETE booking and its altered copies
 router.delete("/bookings/:id", async (req, res) => {
   try {
-    const booking = await Booking.findByIdAndDelete(req.params.id);
+    const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (!canAccess(booking, req.user))
+      return res.status(403).json({ message: "Not your booking" });
+
+    await booking.deleteOne();
     await Alteration.deleteMany({ originalId: req.params.id });
     res.json({ message: "Booking deleted from both collections" });
   } catch (err) {

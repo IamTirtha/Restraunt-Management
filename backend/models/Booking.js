@@ -14,16 +14,18 @@ const fields = {
   remarks: { type: String, default: "" },
 };
 
-// Main bookings (Exp 2 and Exp 4: keeps the update count)
+// Main bookings (keeps the update count)
 const bookingSchema = new mongoose.Schema({
   ...fields,
   updateCount: { type: Number, default: 0 },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
-// Altered copies (Exp 3), linked to the original booking
+// Altered copies, linked to the original booking
 const alterationSchema = new mongoose.Schema({
   ...fields,
   originalId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
 const Booking = mongoose.model("Booking", bookingSchema);
