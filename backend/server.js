@@ -7,6 +7,7 @@ const bookingRoutes = require("./routes/bookings");
 const authRoutes = require("./routes/auth");
 const menuRoutes = require("./routes/menu");
 const adminRoutes = require("./routes/admin");
+const orderRoutes = require("./routes/orders");
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.get("/", (req, res) => res.send("Restaurant Management API is running"));
 app.use("/api/auth", authRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/api", bookingRoutes);
 
 mongoose
